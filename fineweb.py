@@ -6,6 +6,9 @@ Run simply as:
 $ python fineweb.py
 Will save shards to the local directory "edu_fineweb10B".
 """
+# /// script
+# dependencies = ["numpy", "tiktoken", "datasets", "tqdm"]
+# ///
 
 import os
 import multiprocessing as mp
