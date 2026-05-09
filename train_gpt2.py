@@ -60,13 +60,16 @@ class MLP(nn.Module):
         return x
 
 class Block(nn.Module):
+    attn_cls = CausalSelfAttention
+    mlp_cls = MLP
+    norm_cls = nn.LayerNorm
 
     def __init__(self, config):
         super().__init__()
-        self.ln_1 = nn.LayerNorm(config.n_embd)
-        self.attn = CausalSelfAttention(config)
-        self.ln_2 = nn.LayerNorm(config.n_embd)
-        self.mlp = MLP(config)
+        self.ln_1 = self.norm_cls(config.n_embd)
+        self.attn = self.attn_cls(config)
+        self.ln_2 = self.norm_cls(config.n_embd)
+        self.mlp = self.mlp_cls(config)
 
     def forward(self, x):
         x = x + self.attn(self.ln_1(x))
@@ -82,6 +85,8 @@ class GPTConfig:
     n_embd: int = 768 # embedding dimension
 
 class GPT(nn.Module):
+    block_cls = Block
+    norm_cls = nn.LayerNorm
 
     def __init__(self, config):
         super().__init__()
@@ -90,8 +95,8 @@ class GPT(nn.Module):
         self.transformer = nn.ModuleDict(dict(
             wte = nn.Embedding(config.vocab_size, config.n_embd),
             wpe = nn.Embedding(config.block_size, config.n_embd),
-            h = nn.ModuleList([Block(config) for _ in range(config.n_layer)]),
-            ln_f = nn.LayerNorm(config.n_embd),
+            h = nn.ModuleList([self.block_cls(config) for _ in range(config.n_layer)]),
+            ln_f = self.norm_cls(config.n_embd),
         ))
         self.lm_head = nn.Linear(config.n_embd, config.vocab_size, bias=False)
 
@@ -150,7 +155,7 @@ class GPT(nn.Module):
         config_args['block_size'] = 1024 # always 1024 for GPT model checkpoints
         # create a from-scratch initialized minGPT model
         config = GPTConfig(**config_args)
-        model = GPT(config)
+        model = cls(config)
         sd = model.state_dict()
         sd_keys = sd.keys()
         sd_keys = [k for k in sd_keys if not k.endswith('.attn.bias')] # discard this mask / buffer, not a param
@@ -285,7 +290,7 @@ def get_most_likely_row(tokens, mask, logits):
 # DDP launch for e.g. 8 GPUs:
 # torchrun --standalone --nproc_per_node=8 train_gpt2.py
 
-def main():
+def main(model_cls=GPT):
     # parse CLI arguments
     parser = argparse.ArgumentParser()
     parser.add_argument('--run-name', type=str, default='default', help='name for this run (determines log subdirectory)')
@@ -348,7 +353,7 @@ def main():
     torch.set_float32_matmul_precision('high')
 
     # create model
-    model = GPT(GPTConfig(vocab_size=50304))
+    model = model_cls(GPTConfig(vocab_size=50304))
     # model = GPT.from_pretrained("gpt2") # or init from OpenAI GPT-2
     model.to(device)
     use_compile = False # torch.compile interferes with HellaSwag eval and Generation. TODO fix
@@ -357,6 +362,9 @@ def main():
     if ddp:
         model = DDP(model, device_ids=[ddp_local_rank])
     raw_model = model.module if ddp else model # always contains the "raw" unwrapped model
+    if master_process:
+        total_params = sum(p.numel() for p in raw_model.parameters())
+        print(f"total parameters: {total_params:,}")
 
     max_lr = 6e-4
     min_lr = max_lr * 0.1
