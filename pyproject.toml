@@ -1,0 +1,14 @@
+[project]
+name = "build-nanogpt"
+version = "0.1.0"
+description = "Karpathy's build-nanogpt training code"
+requires-python = ">=3.11"
+dependencies = [
+    "torch>=2.2",
+    "numpy",
+    "tiktoken",
+    "transformers",
+    "datasets",
+    "tqdm",
+    "requests",
+]
