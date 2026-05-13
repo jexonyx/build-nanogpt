@@ -23,7 +23,11 @@ remote_name = "sample-10BT"
 shard_size = int(1e8) # 100M tokens per shard, total of 100 shards
 
 # create the cache the local directory if it doesn't exist yet
-DATA_CACHE_DIR = os.path.join(os.path.dirname(__file__), local_dir)
+# Use /data disk if available (mounted data disk), otherwise fall back to script directory
+if os.path.exists("/data"):
+    DATA_CACHE_DIR = os.path.join("/data", local_dir)
+else:
+    DATA_CACHE_DIR = os.path.join(os.path.dirname(__file__), local_dir)
 os.makedirs(DATA_CACHE_DIR, exist_ok=True)
 
 # download the dataset
@@ -45,6 +49,8 @@ def write_datafile(filename, tokens_np):
     np.save(filename, tokens_np)
 
 # tokenize all documents and write output shards, each of shard_size tokens (last shard has remainder)
+# Set multiprocessing start method to 'fork' for compatibility with Python 3.14+
+mp.set_start_method('fork', force=True)
 nprocs = max(1, os.cpu_count()//2)
 with mp.Pool(nprocs) as pool:
     shard_index = 0
