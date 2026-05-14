@@ -434,6 +434,8 @@ def main(model_cls=GPT):
 
         # once in a while evaluate our validation loss
         if step % 250 == 0 or last_step:
+            if device_type == "cuda":
+                torch.cuda.empty_cache()  # Clear fragmentation before validation
             model.eval()
             val_loader.reset()
             with torch.no_grad():
@@ -455,13 +457,19 @@ def main(model_cls=GPT):
                     f.write(f"{step} val {step_val_loss:.4f}\n")
                 if step > 0 and (step % 1000 == 0 or last_step):
                     # optionally write model checkpoints
+                    if device_type == "cuda":
+                        torch.cuda.empty_cache()  # Clear fragmentation before checkpoint
                     checkpoint_path = os.path.join(log_dir, f"model_{step:05d}.pt")
+                    # Move checkpoint to CPU to avoid GPU memory spike
                     checkpoint = {
-                        'model': raw_model.state_dict(),
+                        'model': {k: v.cpu() for k, v in raw_model.state_dict().items()},
                         'config': vars(raw_model.config),
                         'step': step,
                         'val_loss': val_loss_accum.item(),
-                        'optimizer': optimizer.state_dict(),
+                        'optimizer': {
+                            k: (v.cpu() if isinstance(v, torch.Tensor) else v)
+                            for k, v in optimizer.state_dict().items()
+                        },
                         'rng_state': torch.random.get_rng_state(),
                     }
                     if device_type == "cuda":
@@ -470,6 +478,8 @@ def main(model_cls=GPT):
 
         # once in a while evaluate hellaswag
         if (step % 250 == 0 or last_step) and (not use_compile):
+            if device_type == "cuda":
+                torch.cuda.empty_cache()  # Clear fragmentation before HellaSwag
             num_correct_norm = 0
             num_total = 0
             for i, example in enumerate(iterate_examples("val")):
@@ -504,6 +514,8 @@ def main(model_cls=GPT):
 
         # once in a while generate from the model (except step 0, which is noise)
         if ((step > 0 and step % 250 == 0) or last_step) and (not use_compile):
+            if device_type == "cuda":
+                torch.cuda.empty_cache()  # Clear fragmentation before text generation
             model.eval()
             num_return_sequences = 4
             max_length = 32
@@ -567,6 +579,8 @@ def main(model_cls=GPT):
         # snapshot per-block parameters every 50 steps for update-to-weight ratios
         param_snapshots = None
         if step % 50 == 0:
+            if device_type == "cuda":
+                torch.cuda.empty_cache()  # Clear fragmentation before parameter snapshots
             param_snapshots = {}
             for layer_idx, block in enumerate(raw_model.transformer.h):
                 params = torch.cat([p.data.detach().reshape(-1) for p in block.parameters()])
